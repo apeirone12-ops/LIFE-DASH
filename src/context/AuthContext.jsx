@@ -9,46 +9,61 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null)
-      if (session?.user) fetchProfile(session.user.id)
-      else setLoading(false)
-    })
+    const initializeAuth = async () => {
+      // 1. Verificamos si ya hay una sesión
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (session) {
+        setUser(session.user)
+        await fetchProfile(session.user.id)
+      } else {
+        // ¡ESTE ES EL TRUCO! 
+        // Si en la URL hay un "#", significa que Google nos está mandando el token.
+        // NO dejamos de cargar todavía, esperamos a que el 'onAuthStateChange' lo atrape.
+        if (!window.location.hash.includes('access_token')) {
+          setLoading(false)
+        }
+      }
+    }
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      setUser(session?.user ?? null)
-      if (session?.user) await fetchProfile(session.user.id)
-      else { setProfile(null); setLoading(false) }
+    initializeAuth()
+
+    // 2. ESCUCHADOR EN TIEMPO REAL
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log("⚡ EVENTO DETECTADO:", event)
+      
+      if (session) {
+        setUser(session.user)
+        await fetchProfile(session.user.id)
+      } else {
+        setUser(null)
+        setProfile(null)
+        // Solo dejamos de cargar si no estamos en medio de un proceso de login
+        if (!window.location.hash.includes('access_token')) {
+          setLoading(false)
+        }
+      }
     })
 
     return () => subscription.unsubscribe()
   }, [])
 
   async function fetchProfile(userId) {
-    const { data } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .single()
-    if (data) setProfile(data)
-    setLoading(false)
-  }
-
-  async function updateProfile(updates) {
-    const { data, error } = await supabase
-      .from('profiles')
-      .update(updates)
-      .eq('id', user.id)
-      .select()
-      .single()
-    if (!error && data) setProfile(data)
-    return { data, error }
+    try {
+      const { data } = await supabase.from('profiles').select('*').eq('id', userId).single()
+      if (data) setProfile(data)
+    } finally {
+      setLoading(false) // Siempre terminamos de cargar aquí
+    }
   }
 
   async function signInWithGoogle() {
     return supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: window.location.origin }
+      options: { 
+        // IMPORTANTE: Redirigimos directo a /app
+        redirectTo: `${window.location.origin}/app` 
+      }
     })
   }
 
@@ -58,10 +73,41 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, profile, loading, signInWithGoogle, signOut, updateProfile, fetchProfile }}>
+    <AuthContext.Provider value={{ user, profile, loading, signInWithGoogle, signOut }}>
       {children}
     </AuthContext.Provider>
   )
 }
 
 export const useAuth = () => useContext(AuthContext)
+useEffect(() => {
+  // 1. Verificamos sesión inicial
+  supabase.auth.getSession().then(({ data: { session } }) => {
+    if (session) {
+      setUser(session.user)
+      fetchProfile(session.user.id)
+    } else {
+      // Si estamos volviendo de Google (hay un # en la URL), NO dejamos de cargar
+      if (!window.location.hash.includes('access_token')) {
+        setLoading(false)
+      }
+    }
+  })
+
+  // 2. Escuchador de eventos
+  const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    console.log("Evento Auth:", event)
+    
+    if (session) {
+      setUser(session.user)
+      await fetchProfile(session.user.id)
+      setLoading(false) // Recién acá decimos que terminó de cargar
+    } else if (event === 'SIGNED_OUT') {
+      setUser(null)
+      setProfile(null)
+      setLoading(false)
+    }
+  })
+
+  return () => subscription.unsubscribe()
+}, [])
