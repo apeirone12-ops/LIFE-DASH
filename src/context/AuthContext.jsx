@@ -8,41 +8,29 @@ export function AuthProvider({ children }) {
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
 
- useEffect(() => {
-  const initAuth = async () => {
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        setUser(session?.user ?? null)
+        if (session?.user) {
+          await fetchProfile(session.user)
+        } else {
+          setLoading(false)
+        }
+      } catch (e) {
+        console.error(e)
+        setLoading(false)
+      }
+    }
+
+    initAuth()
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setUser(session?.user ?? null)
       if (session?.user) {
         await fetchProfile(session.user)
       } else {
-        setLoading(false)
-      }
-    } catch (e) {
-      console.error(e)
-      setLoading(false)
-    }
-  }
-
-  initAuth()
-
-  const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-    setUser(session?.user ?? null)
-    if (session?.user) {
-      await fetchProfile(session.user)
-    } else {
-      setProfile(null)
-      setLoading(false)
-    }
-  })
-
-  return () => subscription.unsubscribe()
-}, [])
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      setUser(session?.user ?? null)
-      if (session?.user) await fetchProfile(session.user)
-      else {
         setProfile(null)
         setLoading(false)
       }
@@ -109,7 +97,7 @@ export function AuthProvider({ children }) {
       signInWithGoogle, signOut,
       updateProfile,
       fetchProfile: () => user && fetchProfile(user)
-    }}> 
+    }}>
       {children}
     </AuthContext.Provider>
   )
