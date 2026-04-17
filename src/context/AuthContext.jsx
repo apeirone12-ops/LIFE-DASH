@@ -82,7 +82,7 @@ export function AuthProvider({ children }) {
   async function signInWithGoogle() {
     return supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: 'https://lifedashxa.netlify.app/app' }
+      options: { redirectTo: 'https://lifedash-eta.vercel.app/app' }
     })
   }
 
