@@ -9,28 +9,24 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const initAuth = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession()
-        setUser(session?.user ?? null)
-        if (session?.user) {
-          await fetchProfile(session.user)
-        } else {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        setUser(session.user)
+        fetchProfile(session.user.id)
+      } else {
+        if (!window.location.hash.includes('access_token')) {
           setLoading(false)
         }
-      } catch (e) {
-        console.error(e)
-        setLoading(false)
       }
-    }
+    })
 
-    initAuth()
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      setUser(session?.user ?? null)
-      if (session?.user) {
-        await fetchProfile(session.user)
-      } else {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session) {
+        setUser(session.user)
+        await fetchProfile(session.user.id)
+        setLoading(false)
+      } else if (event === 'SIGNED_OUT') {
+        setUser(null)
         setProfile(null)
         setLoading(false)
       }
@@ -39,50 +35,21 @@ export function AuthProvider({ children }) {
     return () => subscription.unsubscribe()
   }, [])
 
-  async function fetchProfile(authUser) {
+  async function fetchProfile(userId) {
     try {
-      let { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', authUser.id)
-        .single()
-
-      if (error || !data) {
-        const { data: newProfile } = await supabase
-          .from('profiles')
-          .insert({
-            id: authUser.id,
-            full_name: authUser.user_metadata?.full_name || '',
-            avatar_url: authUser.user_metadata?.avatar_url || '',
-          })
-          .select()
-          .single()
-        setProfile(newProfile)
-      } else {
-        setProfile(data)
-      }
-    } catch (e) {
-      console.error('Error fetchProfile:', e)
+      const { data } = await supabase.from('profiles').select('*').eq('id', userId).single()
+      if (data) setProfile(data)
     } finally {
       setLoading(false)
     }
   }
 
-  async function updateProfile(updates) {
-    const { data, error } = await supabase
-      .from('profiles')
-      .update(updates)
-      .eq('id', user.id)
-      .select()
-      .single()
-    if (!error && data) setProfile(data)
-    return { data, error }
-  }
-
   async function signInWithGoogle() {
     return supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: 'https://lifedash-eta.vercel.app/app' }
+      options: {
+        redirectTo: 'https://lifedash-eta.vercel.app/app'
+      }
     })
   }
 
@@ -92,12 +59,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{
-      user, profile, loading,
-      signInWithGoogle, signOut,
-      updateProfile,
-      fetchProfile: () => user && fetchProfile(user)
-    }}>
+    <AuthContext.Provider value={{ user, profile, loading, signInWithGoogle, signOut }}>
       {children}
     </AuthContext.Provider>
   )
